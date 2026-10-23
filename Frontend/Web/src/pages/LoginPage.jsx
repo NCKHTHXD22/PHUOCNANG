@@ -88,8 +88,8 @@ export default function LoginPage() {
             <img
               src={`${import.meta.env.BASE_URL}images/logo.png`}
               alt="Logo Phước Năng"
-              className="h-16 w-16 rounded-full object-cover"
-              style={{ boxShadow: '0 0 0 4px rgba(255,255,255,.16), 0 10px 28px rgba(0,0,0,.55)' }}
+              className="h-16 w-16 object-contain"
+              style={{ filter: 'drop-shadow(0 8px 20px rgba(0,0,0,.55))' }}
             />
             <div>
               <h1

@@ -52,7 +52,7 @@ export default function Sidebar() {
         <img
           src={`${import.meta.env.BASE_URL}images/logo.png`}
           alt="Logo Phước Năng"
-          className="h-10 w-10 shrink-0 rounded-full shadow-lg glow-jade object-cover"
+          className="h-10 w-10 shrink-0 object-contain drop-shadow-lg"
         />
         <div className="min-w-0">
           <p className="text-white text-sm font-bold leading-tight truncate">UBND xã Phước Năng</p>

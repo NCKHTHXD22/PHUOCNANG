@@ -53,9 +53,20 @@ if (!CONFIG.PUBLIC_URL) {
   console.warn('[Storage] ⚠️ Chưa đặt PUBLIC_URL — link ảnh sẽ là đường dẫn tương đối, Cổng 1022 và nhóm Zalo không mở được');
 }
 
-// Kết nối MongoDB + seed dữ liệu mặc định
-mongoose.connect(CONFIG.MONGO_URI)
-  .then(async () => {
+// Kết nối MongoDB + seed dữ liệu mặc định. Kết nối lần đầu lỗi (VD Atlas chưa whitelist IP VPS)
+// thì thử lại mỗi 30 giây — mongoose không tự thử lại kết nối ban đầu.
+function connectMongo() {
+  mongoose.connect(CONFIG.MONGO_URI, { serverSelectionTimeoutMS: 15000 })
+    .then(onMongoConnected)
+    .catch((err) => {
+      console.error('[MongoDB] Lỗi kết nối, thử lại sau 30 giây:', err.message);
+      setTimeout(connectMongo, 30 * 1000);
+    });
+}
+connectMongo();
+
+async function onMongoConnected() {
+  try {
     console.log('[MongoDB] Kết nối thành công');
 
     const AdminUser = require('./src/models/AdminUser');
@@ -92,8 +103,10 @@ mongoose.connect(CONFIG.MONGO_URI)
     require('./src/services/deadlineReminderService').startDeadlineReminder();
     require('./src/services/cgy1022RetryService').startCgy1022Retry();
     require('./src/services/cgy1022StatusService').startCgy1022StatusPoll();
-  })
-  .catch(err => console.error('[MongoDB] Lỗi kết nối:', err.message));
+  } catch (err) {
+    console.error('[MongoDB] Lỗi khởi tạo dữ liệu:', err.message);
+  }
+}
 
 // Request logging
 app.use((req, res, next) => {

@@ -144,21 +144,36 @@ async function createFeedbackEntry({
     `Cảm ơn bạn đã gửi phản ánh tới ${CONFIG.ORG_NAME}!`
   );
 
-  const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-  const nameInfo = displayName ? `👤 Tên: ${displayName}\n` : '';
+  const groupMsg = buildGroupMessage({
+    title, displayName, contact, content, categoryName, imageUrls,
+    address: loc.address, gopyId: sync.ok ? sync.gopyId : '', createdAt: feedback.createdAt,
+  });
+  await sendZaloToGroup(groupMsg, categoryGroupId);
+
+  console.log(`[Feedback] Lưu phản ánh userId=${userId} category=${categoryName} images=${imageUrls.length} sync.ok=${sync.ok}`);
+
+  return { feedback, sync };
+}
+
+// Tin "PHẢN ÁNH MỚI" gửi nhóm Zalo tiếp nhận — dùng khi tạo mới và khi gửi lại / chuyển nhóm.
+function buildGroupMessage({
+  title, displayName, contact, content, categoryName, imageUrls = [], address, gopyId, createdAt, resent = false,
+}) {
   const { shouldShowPhone, displayCategoryName } = require('./cgy1022Service');
-  // shouldShowPhone() PHẢI dùng categoryName gốc (còn tiền tố) để tra đúng CGY1022_LINHVUC_MAP —
+  const time = new Date(createdAt || Date.now()).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  // shouldShowPhone() PHẢI dùng categoryName gốc để tra đúng CGY1022_LINHVUC_MAP —
   // displayCategoryName() chỉ áp dụng ở TEXT hiển thị.
+  const nameInfo = displayName ? `👤 Tên: ${displayName}\n` : '';
+  const contactLine = contact && shouldShowPhone(categoryName) ? `📞 Liên hệ: ${contact}\n` : '';
   const catInfo = categoryName ? `🏷️ Loại: ${displayCategoryName(categoryName)}\n` : '';
-  const locationInfo = loc.address ? `📍 Địa chỉ: ${loc.address}\n` : '';
+  const locationInfo = address ? `📍 Địa chỉ: ${address}\n` : '';
   const imageInfo = imageUrls.length > 0
     ? `🖼️ ${imageUrls.length} ảnh:\n${imageUrls.map((u, i) => `  ${i + 1}. ${u}`).join('\n')}`
     : '🖼️ Ảnh: Không có';
-  const codeLine = sync.ok && sync.gopyId ? `🆔 Mã phản ánh: ${sync.gopyId}` : '🆔 Mã phản ánh: đang đồng bộ...';
-  const contactLine = shouldShowPhone(categoryName) ? `📞 Liên hệ: ${contact}\n` : '';
+  const codeLine = gopyId ? `🆔 Mã phản ánh: ${gopyId}` : '🆔 Mã phản ánh: đang đồng bộ...';
 
-  const groupMsg =
-    `📩 PHẢN ÁNH MỚI - ${now}\n` +
+  return (
+    `📩 PHẢN ÁNH ${resent ? '(GỬI LẠI) ' : 'MỚI '}- ${time}\n` +
     `${'─'.repeat(30)}\n` +
     `📌 Tiêu đề: ${title}\n` +
     `${nameInfo}` +
@@ -167,13 +182,30 @@ async function createFeedbackEntry({
     `${locationInfo}` +
     `📝 Nội dung:\n${content}\n` +
     `${imageInfo}\n` +
-    `${codeLine}`;
+    `${codeLine}`
+  );
+}
 
-  await sendZaloToGroup(groupMsg, categoryGroupId);
-
-  console.log(`[Feedback] Lưu phản ánh userId=${userId} category=${categoryName} images=${imageUrls.length} sync.ok=${sync.ok}`);
-
-  return { feedback, sync };
+// Gửi (lại) thông tin 1 phản ánh vào nhóm Zalo tiếp nhận của danh mục hiện tại.
+// Trả false nếu danh mục chưa có nhóm và cũng không có ZALO_GROUP_ID mặc định.
+async function notifyGroupOfFeedback(feedbackId) {
+  const fb = await Feedback.findById(feedbackId).populate('categoryId', 'name zaloGroupId').lean();
+  if (!fb) throw new Error('Không tìm thấy phản ánh');
+  const groupId = fb.categoryId?.zaloGroupId || CONFIG.ZALO_GROUP_ID;
+  if (!groupId) return false;
+  const msg = buildGroupMessage({
+    title: fb.title || fb.content.slice(0, 60),
+    displayName: fb.displayName,
+    contact: fb.contact,
+    content: fb.content,
+    categoryName: fb.categoryId?.name || '',
+    imageUrls: fb.imageUrls?.length ? fb.imageUrls : (fb.imageUrl ? [fb.imageUrl] : []),
+    address: fb.location?.address,
+    gopyId: fb.cgy1022?.gopyId,
+    createdAt: fb.createdAt,
+    resent: true,
+  });
+  return sendZaloToGroup(msg, groupId);
 }
 
 function isFeedbackTrigger(text) {
@@ -197,4 +229,5 @@ function isLookupTrigger(text) {
 module.exports = {
   promptReportApp, promptReportAppHistory, isFeedbackTrigger, isLookupTrigger,
   geocodeAddress, reverseGeocodeAddress, createFeedbackEntry, isPhone, normalizePhone,
+  buildGroupMessage, notifyGroupOfFeedback,
 };

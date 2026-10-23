@@ -101,6 +101,23 @@ export default function FeedbackDetailPage() {
     onError: (e) => toast.error(e.response?.data?.error || 'Lỗi từ chối'),
   })
 
+  // Chuyển phản ánh sang danh mục / nhóm Zalo khác (superadmin) — tự gửi lại thông tin vào nhóm mới
+  const moveCategoryMutation = useMutation({
+    mutationFn: (categoryId) => api.post(`/api/feedbacks/${id}/category`, { categoryId }).then((r) => r.data),
+    onSuccess: (d) => {
+      if (d.notified) toast.success(`Đã chuyển sang "${d.category}" và gửi thông tin vào nhóm Zalo`)
+      else toast.warning(`Đã chuyển sang "${d.category}" nhưng chưa gửi được vào nhóm Zalo`)
+      invalidate()
+    },
+    onError: (e) => toast.error(e.response?.data?.error || 'Lỗi chuyển danh mục'),
+  })
+
+  const notifyGroupMutation = useMutation({
+    mutationFn: () => api.post(`/api/feedbacks/${id}/notify-group`).then((r) => r.data),
+    onSuccess: () => toast.success('Đã gửi lại thông tin phản ánh vào nhóm Zalo'),
+    onError: (e) => toast.error(e.response?.data?.error || 'Lỗi gửi nhóm'),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/api/feedbacks/${id}`),
     onSuccess: () => { toast.success('Đã xóa góp ý'); navigate('/feedbacks') },
@@ -160,10 +177,39 @@ export default function FeedbackDetailPage() {
           <p className="text-xs text-muted-foreground">{fb._id}</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {fb.categoryId && (
+          {user?.role === 'superadmin' ? (
+            <select
+              value={fb.categoryId?._id || ''}
+              disabled={moveCategoryMutation.isPending}
+              onChange={(e) => {
+                const cat = (data.categories || []).find((c) => c._id === e.target.value)
+                if (cat && window.confirm(`Chuyển phản ánh sang "${cat.name}" và gửi thông tin vào nhóm Zalo của danh mục này?`)) {
+                  moveCategoryMutation.mutate(cat._id)
+                }
+              }}
+              title="Chuyển danh mục / nhóm Zalo tiếp nhận"
+              className="text-sm text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full border-0 max-w-[260px] cursor-pointer"
+            >
+              {!fb.categoryId && <option value="">⚠ Chưa có danh mục — chọn để chuyển</option>}
+              {(data.categories || []).map((c) => (
+                <option key={c._id} value={c._id}>{c.icon} {c.name}</option>
+              ))}
+            </select>
+          ) : fb.categoryId && (
             <span className="text-sm text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
               {fb.categoryId.icon} {fb.categoryId.name}
             </span>
+          )}
+          {isLeader && fb.categoryId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => notifyGroupMutation.mutate()}
+              disabled={notifyGroupMutation.isPending}
+              title="Gửi lại thông tin phản ánh vào nhóm Zalo tiếp nhận"
+            >
+              {notifyGroupMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '📤 Gửi lại nhóm'}
+            </Button>
           )}
           {/* Trạng thái đồng bộ Cổng góp ý 1022 */}
           {fb.cgy1022?.synced ? (

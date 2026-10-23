@@ -135,12 +135,12 @@ async function sendZaloLinkButton(userId, title, subtitle, buttonLabel, url) {
   }
 }
 
-// Gửi text vào nhóm Zalo (theo groupId)
+// Gửi text vào nhóm Zalo (theo groupId). Trả true nếu Zalo nhận tin, false nếu lỗi / không có nhóm.
 async function sendZaloToGroup(text, groupId, mentions = []) {
   const targetId = groupId || CONFIG.ZALO_GROUP_ID;
   if (!targetId) {
     console.warn('[Zalo] Không có groupId, bỏ qua gửi nhóm.');
-    return;
+    return false;
   }
   try {
     const message = mentions.length > 0 ? { text, mentions } : { text };
@@ -148,9 +148,14 @@ async function sendZaloToGroup(text, groupId, mentions = []) {
       'https://openapi.zalo.me/v2.0/oa/message',
       { recipient: { group_id: String(targetId) }, message }
     );
-    if (res.data?.error !== 0) console.error('[Zalo] Lỗi gửi tin nhóm:', res.data);
+    if (res.data?.error !== 0) {
+      console.error('[Zalo] Lỗi gửi tin nhóm:', res.data);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error('[Zalo] Gửi tin nhóm thất bại:', err.message);
+    return false;
   }
 }
 
@@ -294,6 +299,7 @@ async function getZaloUserProfile(userId) {
 async function getGroupsOfOA() {
   const doRequest = (token) =>
     axios.get('https://openapi.zalo.me/v3.0/oa/group/getgroupsofoa', {
+      params: { offset: 0, count: 50 },
       headers: { access_token: token },
     });
   let res = await doRequest(getToken());

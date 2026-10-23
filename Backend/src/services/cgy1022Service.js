@@ -51,40 +51,46 @@ function getShowPhoneLinhVucSet() {
 // nguyên khi tra CGY1022_LINHVUC_MAP/getLinhVucId (map theo đúng chuỗi gốc), nhưng không hiển
 // thị tiền tố đó cho dân/cán bộ. Chỉ dùng hàm này ở tầng hiển thị, KHÔNG dùng trước khi gọi
 // getLinhVucId()/shouldShowPhone() — nếu không map sẽ luôn miss.
+// Bỏ cả hậu tố viết tắt đơn vị trong ngoặc ở cuối tên nhóm Zalo, VD "An ninh trật tự, PCCC (PN)".
 function displayCategoryName(name) {
-  return String(name || '').replace(/^[^_]*_/, '');
+  return String(name || '').replace(/^[^_]*_/, '').replace(/\s*\([^()]{1,6}\)\s*$/, '').trim();
+}
+
+// Chuẩn hoá tên để so khớp: Unicode NFC (dấu tiếng Việt từ Zalo có thể ở dạng tổ hợp khác chuỗi
+// gõ trong .env), gộp khoảng trắng, không phân biệt hoa thường.
+function normalizeName(name) {
+  return String(name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// Map lĩnh vực từ env (JSON: tên danh mục → linhVucId 1022), khoá đã chuẩn hoá. null = JSON lỗi.
+function readLinhVucMap() {
+  try {
+    const raw = JSON.parse(CONFIG.CGY1022_LINHVUC_MAP);
+    return new Map(Object.entries(raw).map(([k, v]) => [normalizeName(k), Number(v)]));
+  } catch (e) {
+    console.error('[CGY1022] CGY1022_LINHVUC_MAP không phải JSON hợp lệ:', e.message);
+    return null;
+  }
 }
 
 // Đã khai báo CGY1022_LINHVUC_MAP (khác {}) chưa — chưa khai báo thì ReportApp hiện mọi danh mục.
 function hasLinhVucMap() {
-  try {
-    return Object.keys(JSON.parse(CONFIG.CGY1022_LINHVUC_MAP)).length > 0;
-  } catch (e) {
-    return false;
-  }
+  const map = readLinhVucMap();
+  return Boolean(map && map.size > 0);
 }
 
 // Kiểm tra danh mục có được khai báo TƯỜNG MINH trong CGY1022_LINHVUC_MAP hay không — KHÔNG
 // áp dụng fallback CGY1022_LINHVUC_DEFAULT (khác getLinhVucId()). Dùng để lọc danh sách danh
 // mục hiển thị cho dân (ReportApp) chỉ còn đúng các loại phản ánh chính thức, loại bỏ danh
-// mục phụ trợ nội bộ (VD "Hỗ trợ OAZalo") hay rác test chưa từng được map linhVucId.
+// mục phụ trợ nội bộ hay rác test chưa từng được map linhVucId.
 function isMappedCategory(categoryName) {
-  try {
-    const map = JSON.parse(CONFIG.CGY1022_LINHVUC_MAP);
-    return Boolean(categoryName && map[categoryName] != null);
-  } catch (e) {
-    return false;
-  }
+  const map = readLinhVucMap();
+  return Boolean(categoryName && map && map.has(normalizeName(categoryName)));
 }
 
-// Đọc map lĩnh vực từ env (JSON: tên danh mục → linhVucId 1022)
 function getLinhVucId(categoryName) {
-  try {
-    const map = JSON.parse(CONFIG.CGY1022_LINHVUC_MAP);
-    if (categoryName && map[categoryName] != null) return Number(map[categoryName]);
-  } catch (e) {
-    console.error('[CGY1022] CGY1022_LINHVUC_MAP không phải JSON hợp lệ:', e.message);
-  }
+  const map = readLinhVucMap();
+  if (categoryName && map && map.has(normalizeName(categoryName))) return map.get(normalizeName(categoryName));
   return CONFIG.CGY1022_LINHVUC_DEFAULT !== '' ? Number(CONFIG.CGY1022_LINHVUC_DEFAULT) : null;
 }
 

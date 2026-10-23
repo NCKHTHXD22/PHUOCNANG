@@ -425,6 +425,17 @@ export default function SettingsPage() {
   const categories = catsData?.categories ?? []
   const followers = followersData?.followers ?? []
 
+  // Lấy toàn bộ nhóm Zalo của OA → tạo/cập nhật danh mục + thành viên
+  const syncGroupsMutation = useMutation({
+    mutationFn: () => api.post('/api/categories/sync-all').then((r) => r.data),
+    onSuccess: (d) => {
+      toast.success(`Đồng bộ ${d.total} nhóm: +${d.created} mới, ${d.updated} đổi tên, ${d.membersSynced} thành viên`)
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['zalo-members'] })
+    },
+    onError: (e) => toast.error(e.response?.data?.error || 'Lỗi đồng bộ nhóm Zalo'),
+  })
+
   const syncFollowersMutation = useMutation({
     mutationFn: () => api.post('/api/zalo-members/followers/sync').then((r) => r.data),
     onSuccess: (d) => {
@@ -508,7 +519,18 @@ export default function SettingsPage() {
             Quản lý danh sách cán bộ trong từng nhóm để phân công xử lý phản ánh
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => syncGroupsMutation.mutate()}
+            disabled={syncGroupsMutation.isPending}
+            className="flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-60"
+          >
+            {syncGroupsMutation.isPending
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <RefreshCw className="h-4 w-4" />}
+            Đồng bộ nhóm từ Zalo
+          </button>
           <button
             type="button"
             onClick={() => syncFollowersMutation.mutate()}

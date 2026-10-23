@@ -273,6 +273,49 @@ router.post('/attachments/upload/file', (req, res) => {
   })
 })
 
+// POST /:id/category — chuyển phản ánh sang danh mục khác (superadmin) rồi gửi lại thông tin vào
+// nhóm Zalo của danh mục mới. Dùng khi dân chọn nhầm loại, hoặc danh mục cũ đã bị xoá.
+router.post('/:id/category', requireRole('superadmin'), async (req, res) => {
+  try {
+    const { categoryId, notify = true } = req.body
+    if (!asObjectId(categoryId)) return res.status(400).json({ error: 'Thiếu danh mục' })
+    const category = await Category.findById(categoryId).lean()
+    if (!category) return res.status(404).json({ error: 'Không tìm thấy danh mục' })
+    const feedback = await Feedback.findByIdAndUpdate(
+      req.params.id,
+      { categoryId: category._id, updatedAt: new Date() },
+      { new: true }
+    ).lean()
+    if (!feedback) return res.status(404).json({ error: 'Không tìm thấy góp ý' })
+
+    let notified = false
+    if (notify) {
+      const { notifyGroupOfFeedback } = require('../../src/services/feedbackService')
+      notified = await notifyGroupOfFeedback(feedback._id)
+    }
+    res.json({ ok: true, category: category.name, notified })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /:id/notify-group — gửi lại thông tin phản ánh vào nhóm Zalo tiếp nhận (superadmin, dept_leader)
+router.post('/:id/notify-group', requireRole('superadmin', 'dept_leader'), async (req, res) => {
+  try {
+    const feedback = await Feedback.findById(req.params.id, 'categoryId assignedTo').lean()
+    if (!feedback) return res.status(404).json({ error: 'Không tìm thấy góp ý' })
+    if (!canAccessFeedback(req.user, feedback)) {
+      return res.status(403).json({ error: 'Bạn không có quyền truy cập phản ánh này' })
+    }
+    const { notifyGroupOfFeedback } = require('../../src/services/feedbackService')
+    const notified = await notifyGroupOfFeedback(feedback._id)
+    if (!notified) return res.status(502).json({ error: 'Không gửi được vào nhóm Zalo (danh mục chưa gán nhóm hoặc Zalo báo lỗi)' })
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /:id/assign — phân công (superadmin, dept_leader)
 router.post('/:id/assign', requireRole('superadmin', 'dept_leader'), async (req, res) => {
   try {

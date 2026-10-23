@@ -140,6 +140,10 @@ function scheduleSyncDebounced(delay = 8000) {
 
 // Đồng bộ định kỳ toàn bộ nhóm Zalo → Web (chạy nền).
 function startGroupSyncSchedule() {
+  // Đồng bộ ngay sau khi khởi động (sau 20 giây cho token Zalo kịp làm mới), rồi định kỳ
+  setTimeout(() => {
+    syncGroupsFromZalo().catch(err => console.error('[GroupSync] khởi động lỗi:', err.message));
+  }, 20 * 1000);
   setInterval(() => {
     syncGroupsFromZalo().catch(err => console.error('[GroupSync] định kỳ lỗi:', err.message));
   }, SYNC_INTERVAL_MS);

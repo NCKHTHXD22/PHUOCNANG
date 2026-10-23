@@ -69,13 +69,13 @@ cd Backend && npm install --omit=dev && cd ..
 cd Frontend/Web && npm install && npm run build && cd ../..
 cd Frontend/ReportApp && cp .env.example .env   # điền VITE_ZALO_APP_ID
 npm install && npm run build && cd ../..
-pm2 start server.js --name phuocnang-backend --cwd /var/www/phuocnang/Backend -i 1
+pm2 start server.js --name phuocnang-backend --cwd /var/www/phuocnang/Backend
 pm2 save
 curl http://localhost:3001/health
 ```
 
 - Lần chạy đầu tạo tài khoản `admin` — mật khẩu là `ADMIN_PASSWORD` trong `.env`, để trống thì xem trong `pm2 logs`. Đổi mật khẩu ngay sau khi đăng nhập.
-- ⚠️ Chỉ chạy **1 tiến trình** (`-i 1`, không dùng cluster): refresh token Zalo chỉ dùng được 1 lần, 2 tiến trình cùng refresh sẽ làm hỏng token.
+- ⚠️ Chỉ chạy **1 tiến trình** (không dùng `-i`/cluster): refresh token Zalo chỉ dùng được 1 lần, 2 tiến trình cùng refresh sẽ làm hỏng token.
 - ⚠️ `--cwd`: PM2 resolve script **tương đối với `--cwd`**. Luôn dùng `server.js` + `--cwd` tuyệt đối tới `Backend/`.
 - `VITE_ZALO_APP_ID` được nhúng lúc build ReportApp → đổi giá trị thì phải build lại.
 

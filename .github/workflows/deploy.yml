@@ -26,8 +26,8 @@ jobs:
             cd Backend && npm install --omit=dev && cd ..
             cd Frontend/Web && npm install && npm run build && cd ../..
             cd Frontend/ReportApp && npm install && npm run build && cd ../..
-            # Chỉ chạy 1 tiến trình: refresh token Zalo dùng 1 lần, 2 tiến trình sẽ làm hỏng token
+            # Chỉ chạy 1 tiến trình (fork mode, KHÔNG dùng -i/cluster): refresh token Zalo dùng 1 lần
             pm2 delete phuocnang-backend 2>/dev/null || true
-            pm2 start server.js --name phuocnang-backend --cwd ${{ secrets.VPS_APP_DIR }}/Backend -i 1
+            pm2 start server.js --name phuocnang-backend --cwd ${{ secrets.VPS_APP_DIR }}/Backend
             pm2 save
             echo "✅ Deploy xong: $(date)"

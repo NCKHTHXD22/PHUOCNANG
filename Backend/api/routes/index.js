@@ -1,0 +1,25 @@
+const router = require('express').Router()
+const requireAuth = require('../middleware/requireAuth')
+const authRoutes = require('./auth')
+const publicRoutes = require('./public')
+const statsRoutes = require('./stats')
+const feedbackRoutes = require('./feedbacks')
+const userRoutes = require('./users')
+const categoryRoutes = require('./categories')
+const zaloMembersRoutes = require('./zalo-members')
+const notificationRoutes = require('./notifications')
+const reportRoutes = require('./reports')
+
+router.use('/auth', authRoutes)
+router.use('/public', publicRoutes)
+
+router.use(requireAuth)
+router.use('/stats', statsRoutes)
+router.use('/feedbacks', feedbackRoutes)
+router.use('/users', userRoutes)
+router.use('/categories', categoryRoutes)
+router.use('/zalo-members', zaloMembersRoutes)
+router.use('/notifications', notificationRoutes)
+router.use('/reports', reportRoutes)
+
+module.exports = router

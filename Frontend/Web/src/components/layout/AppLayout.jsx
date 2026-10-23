@@ -1,0 +1,106 @@
+import { useState } from 'react'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Search } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
+import Sidebar from './Sidebar'
+import NotificationBell from './NotificationBell'
+
+const PAGE_TITLES = {
+  '/dashboard': { title: 'Tổng quan', subtitle: 'Thống kê & theo dõi góp ý người dân' },
+  '/feedbacks':  { title: 'Góp ý & Phản ánh', subtitle: 'Danh sách và xử lý phản ánh' },
+  '/users':      { title: 'Tài khoản Admin', subtitle: 'Quản lý tài khoản cán bộ' },
+}
+
+function getHourGreeting() {
+  const h = new Date().getHours()
+  if (h < 12) return 'Chào buổi sáng'
+  if (h < 18) return 'Chào buổi chiều'
+  return 'Chào buổi tối'
+}
+
+export default function AppLayout() {
+  const { user } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [searchValue, setSearchValue] = useState('')
+
+  const basePath = '/' + location.pathname.split('/')[1]
+  const page = PAGE_TITLES[basePath] ?? { title: 'Trang', subtitle: '' }
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault()
+    if (!searchValue.trim()) return
+    navigate(`/feedbacks?q=${encodeURIComponent(searchValue.trim())}`)
+  }
+
+  return (
+    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-slate-50 to-emerald-50/50 overflow-hidden">
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <Sidebar />
+
+      {/* Main content */}
+      <div className="ml-64 flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Gradient header */}
+        <header className="relative shrink-0"
+          style={{ background: 'linear-gradient(135deg, #047857 0%, #059669 40%, #10b981 100%)' }}>
+          {/* Decorative blobs — riêng khung này clip, không clip cả header để dropdown thông báo không bị che */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -top-10 -right-10 h-48 w-48 rounded-full bg-white/5" />
+            <div className="absolute bottom-0 right-32 h-32 w-32 rounded-full bg-amber-300/10" />
+            <div className="absolute -bottom-6 left-1/3 h-20 w-20 rounded-full bg-teal-200/10" />
+          </div>
+
+          <div className="relative px-6 py-4 flex items-center justify-between gap-4">
+            {/* Left: greeting + page title */}
+            <div className="min-w-0">
+            </div>
+
+            {/* Right: search + notifications + user */}
+            <div className="flex items-center gap-3 shrink-0">
+              {/* Search mã hồ sơ (hidden on small screens) */}
+              <form onSubmit={handleSearchSubmit} className="relative hidden md:block">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/50 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchValue}
+                  onChange={(e) => setSearchValue(e.target.value)}
+                  placeholder="Tìm mã hồ sơ..."
+                  className="h-9 w-48 rounded-xl bg-white/15 border border-white/20 pl-9 pr-4 text-sm text-white placeholder-white/50 focus:outline-none focus:bg-white/22 focus:border-white/40 focus:w-56 transition-all duration-300"
+                />
+              </form>
+
+              {/* Bell */}
+              <NotificationBell />
+
+              {/* User chip */}
+              <div className="flex items-center gap-2.5 rounded-xl bg-white/15 border border-white/20 px-3 py-1.5">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-white/30 to-white/10 text-white text-xs font-bold">
+                  {user?.fullName?.[0]?.toUpperCase() ?? 'A'}
+                </div>
+                <div className="hidden sm:block leading-tight">
+                  <p className="text-white text-xs font-semibold">{user?.fullName}</p>
+                  <p className="text-emerald-100/70 text-[10px]">
+                    {user?.role === 'superadmin' ? 'Admin' : 'Nhân viên'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Scrollable page content */}
+        <main className="flex-1 overflow-y-auto p-6">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  )
+}

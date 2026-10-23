@@ -1,0 +1,6 @@
+node_modules/
+.env
+dist/
+# Dữ liệu chạy trên VPS (token Zalo, cache) và ảnh/file người dân gửi lên
+Backend/data/
+Backend/uploads/

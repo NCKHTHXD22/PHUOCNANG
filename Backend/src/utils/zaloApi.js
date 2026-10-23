@@ -1,0 +1,508 @@
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const { getToken, refreshAccessToken } = require('./zaloToken');
+const CONFIG = require('../config');
+const { resolveLocalPath } = require('./mediaStorage');
+
+async function zaloPost(url, data) {
+  const doRequest = (token) =>
+    axios.post(url, data, {
+      headers: { access_token: token, 'Content-Type': 'application/json' },
+    });
+
+  let res = await doRequest(getToken());
+
+  if (res.data?.error === -216) {
+    console.warn('[ZaloToken] Token hết hạn, đang refresh...');
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+
+  return res;
+}
+
+// GET tương tự zaloPost: cùng token + retry 1 lần sau refresh khi gặp -216
+async function zaloGet(url, params) {
+  const doRequest = (token) => axios.get(url, { params, headers: { access_token: token } });
+
+  let res = await doRequest(getToken());
+
+  if (res.data?.error === -216) {
+    console.warn('[ZaloToken] Token hết hạn, đang refresh...');
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+
+  return res;
+}
+
+async function sendZaloText(userId, text) {
+  try {
+    const res = await zaloPost(
+      'https://openapi.zalo.me/v2.0/oa/message',
+      { recipient: { user_id: String(userId) }, message: { text } }
+    );
+    if (res.data?.error !== 0) console.error('[Zalo] Lỗi gửi tin:', res.data);
+  } catch (err) {
+    console.error('[Zalo] Gửi tin thất bại:', err.message);
+  }
+}
+
+async function uploadImageBufferToZalo(buffer, filename) {
+  const FormData = require('form-data');
+  const form = new FormData();
+  form.append('file', buffer, { filename: filename || 'image.jpg', contentType: 'image/jpeg' });
+
+  const doUpload = (token) =>
+    axios.post('https://openapi.zalo.me/v2.0/oa/upload/image', form, {
+      headers: { ...form.getHeaders(), access_token: token },
+    });
+
+  let res = await doUpload(getToken());
+
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doUpload(newToken);
+  }
+
+  if (res.data?.error !== 0) throw new Error(`Upload ảnh thất bại: ${res.data?.message}`);
+  const attachmentId = res.data?.data?.attachment_id;
+  if (!attachmentId) throw new Error('Không lấy được attachment_id từ Zalo');
+  return attachmentId;
+}
+
+// Upload ảnh từ đường dẫn file trên đĩa
+async function uploadImageToZalo(filepath) {
+  const buffer = fs.readFileSync(filepath);
+  const filename = path.basename(filepath);
+  return uploadImageBufferToZalo(buffer, filename);
+}
+
+// Upload file (docx/pdf/xlsx) to Zalo, returns file token
+async function uploadFileToZalo(filepath, originalFilename) {
+  const FormData = require('form-data');
+  const form = new FormData();
+  form.append('file', fs.createReadStream(filepath), { filename: originalFilename });
+
+  const doUpload = (token) =>
+    axios.post('https://openapi.zalo.me/v2.0/oa/upload/file', form, {
+      headers: { ...form.getHeaders(), access_token: token },
+    });
+
+  let res = await doUpload(getToken());
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doUpload(newToken);
+  }
+  if (res.data?.error !== 0) throw new Error(`Upload file thất bại: ${res.data?.message}`);
+  const token = res.data?.data?.token;
+  if (!token) throw new Error('Không lấy được file token từ Zalo');
+  return token;
+}
+
+// Gửi message với nút bấm mở URL (dùng cho mini web page chia sẻ vị trí)
+async function sendZaloLinkButton(userId, title, subtitle, buttonLabel, url) {
+  try {
+    const res = await zaloPost('https://openapi.zalo.me/v2.0/oa/message', {
+      recipient: { user_id: String(userId) },
+      message: {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'list',
+            elements: [{
+              title,
+              subtitle,
+              default_action: { type: 'oa.open.url', url },
+            }],
+            buttons: [{
+              title: buttonLabel,
+              type: 'oa.open.url',
+              payload: { url },
+            }],
+          },
+        },
+      },
+    });
+    if (res.data?.error !== 0) {
+      console.warn('[Zalo] sendZaloLinkButton error, fallback text:', res.data);
+      await sendZaloText(userId, `${title}\n${subtitle}\n👉 ${url}`);
+    }
+  } catch (err) {
+    console.error('[Zalo] sendZaloLinkButton thất bại:', err.message);
+    await sendZaloText(userId, `${title}\n${subtitle}\n👉 ${url}`);
+  }
+}
+
+// Gửi text vào nhóm Zalo (theo groupId)
+async function sendZaloToGroup(text, groupId, mentions = []) {
+  const targetId = groupId || CONFIG.ZALO_GROUP_ID;
+  if (!targetId) {
+    console.warn('[Zalo] Không có groupId, bỏ qua gửi nhóm.');
+    return;
+  }
+  try {
+    const message = mentions.length > 0 ? { text, mentions } : { text };
+    const res = await zaloPost(
+      'https://openapi.zalo.me/v2.0/oa/message',
+      { recipient: { group_id: String(targetId) }, message }
+    );
+    if (res.data?.error !== 0) console.error('[Zalo] Lỗi gửi tin nhóm:', res.data);
+  } catch (err) {
+    console.error('[Zalo] Gửi tin nhóm thất bại:', err.message);
+  }
+}
+
+// Gửi nhiều ảnh đến user (mỗi ảnh 1 message)
+async function sendZaloImages(userId, attachmentIds) {
+  for (const attachId of attachmentIds) {
+    try {
+      await zaloPost('https://openapi.zalo.me/v2.0/oa/message', {
+        recipient: { user_id: String(userId) },
+        message: {
+          attachment: {
+            type: 'template',
+            payload: {
+              template_type: 'media',
+              elements: [{ media_type: 'image', attachment_id: attachId }],
+            },
+          },
+        },
+      });
+    } catch (err) {
+      console.error('[Zalo] Gửi ảnh thất bại:', err.message);
+    }
+  }
+}
+
+// Gửi nhiều ảnh vào nhóm
+async function sendZaloImagesToGroup(groupId, attachmentIds) {
+  for (const attachId of attachmentIds) {
+    try {
+      await zaloPost('https://openapi.zalo.me/v2.0/oa/message', {
+        recipient: { group_id: String(groupId) },
+        message: {
+          attachment: {
+            type: 'template',
+            payload: {
+              template_type: 'media',
+              elements: [{ media_type: 'image', attachment_id: attachId }],
+            },
+          },
+        },
+      });
+    } catch (err) {
+      console.error('[Zalo] Gửi ảnh nhóm thất bại:', err.message);
+    }
+  }
+}
+
+// Gửi ảnh kèm nút link (dùng cho video preview)
+async function sendZaloImageWithLink(userId, attachmentId, url, buttonTitle = '▶ Xem') {
+  try {
+    await zaloPost('https://openapi.zalo.me/v2.0/oa/message', {
+      recipient: { user_id: String(userId) },
+      message: {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'media',
+            elements: [{
+              media_type: 'image',
+              attachment_id: attachmentId,
+              buttons: [{ title: buttonTitle, type: 'oa.open.url', payload: { url } }],
+            }],
+          },
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[Zalo] Gửi image+link thất bại:', err.message);
+    throw err;
+  }
+}
+
+// Gửi ảnh kèm nút link vào nhóm
+async function sendZaloImageWithLinkToGroup(groupId, attachmentId, url, buttonTitle = '▶ Xem') {
+  try {
+    await zaloPost('https://openapi.zalo.me/v2.0/oa/message', {
+      recipient: { group_id: String(groupId) },
+      message: {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'media',
+            elements: [{
+              media_type: 'image',
+              attachment_id: attachmentId,
+              buttons: [{ title: buttonTitle, type: 'oa.open.url', payload: { url } }],
+            }],
+          },
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[Zalo] Gửi image+link nhóm thất bại:', err.message);
+    throw err;
+  }
+}
+
+// Gửi file đến user
+async function sendZaloFile(userId, fileToken) {
+  try {
+    const res = await zaloPost('https://openapi.zalo.me/v2.0/oa/message', {
+      recipient: { user_id: String(userId) },
+      message: { attachment: { type: 'file', payload: { token: fileToken } } },
+    });
+    if (res.data?.error !== 0) console.error('[Zalo] Lỗi gửi file:', res.data);
+  } catch (err) {
+    console.error('[Zalo] Gửi file thất bại:', err.message);
+  }
+}
+
+// Gửi file vào nhóm
+async function sendZaloFileToGroup(groupId, fileToken) {
+  try {
+    const res = await zaloPost('https://openapi.zalo.me/v2.0/oa/message', {
+      recipient: { group_id: String(groupId) },
+      message: { attachment: { type: 'file', payload: { token: fileToken } } },
+    });
+    if (res.data?.error !== 0) console.error('[Zalo] Lỗi gửi file nhóm:', res.data);
+  } catch (err) {
+    console.error('[Zalo] Gửi file nhóm thất bại:', err.message);
+  }
+}
+
+async function getZaloUserProfile(userId) {
+  try {
+    const token = getToken();
+    const res = await axios.get(
+      `https://openapi.zalo.me/v2.0/oa/getprofile?data=${encodeURIComponent(JSON.stringify({ user_id: String(userId) }))}`,
+      { headers: { access_token: token } }
+    );
+    console.log(`[Zalo] getprofile userId=${userId} → error=${res.data?.error} name="${res.data?.data?.display_name}" raw=${JSON.stringify(res.data)}`);
+    if (res.data?.error === 0) return res.data.data;
+    return null;
+  } catch (err) {
+    console.error('[Zalo] Lấy profile thất bại:', err.message);
+    return null;
+  }
+}
+
+// Lấy danh sách nhóm OA đang quản lý (GMF v3.0)
+async function getGroupsOfOA() {
+  const doRequest = (token) =>
+    axios.get('https://openapi.zalo.me/v3.0/oa/group/getgroupsofoa', {
+      headers: { access_token: token },
+    });
+  let res = await doRequest(getToken());
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+  return res.data;
+}
+
+// Lấy danh sách thành viên 1 nhóm (GMF v3.0)
+async function getGroupMembersV3(groupId) {
+  const doRequest = (token) =>
+    axios.get('https://openapi.zalo.me/v3.0/oa/group/listmember', {
+      params: { group_id: String(groupId), offset: 0, count: 50 },
+      headers: { access_token: token },
+    });
+  let res = await doRequest(getToken());
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+  if (res.data?.error !== 0) {
+    console.warn(`[Zalo] listmember group=${groupId} lỗi:`, res.data?.error, res.data?.message);
+  }
+  return { members: res.data?.data?.members || [], raw: res.data };
+}
+
+// Tạo nhóm Zalo GMF v3.0 từ danh sách thành viên ban đầu
+async function createZaloGroup(name, memberIds, description = '') {
+  const assetId = process.env.ZALO_ASSET_ID;
+  if (!assetId) throw new Error('Chưa cấu hình ZALO_ASSET_ID trong hệ thống (file .env)');
+
+  const doRequest = (token) =>
+    axios.post('https://openapi.zalo.me/v3.0/oa/group/creategroupwithoa', {
+      group_name: String(name),
+      group_description: String(description || name),
+      asset_id: String(assetId),
+      member_user_ids: memberIds.map(String),
+    }, {
+      headers: { access_token: token, 'Content-Type': 'application/json' },
+    });
+
+  let res = await doRequest(getToken());
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+
+  if (res.data?.error !== 0) {
+    console.error(`[Zalo] Lỗi tạo nhóm "${name}":`, res.data?.error, res.data?.message);
+    throw new Error(`Zalo error ${res.data?.error}: ${res.data?.message}`);
+  }
+
+  return res.data?.data?.group_id;
+}
+
+// Xóa/Giải tán nhóm Zalo GMF v3.0
+async function deleteZaloGroup(groupId) {
+  const doRequest = (token) =>
+    axios.post('https://openapi.zalo.me/v3.0/oa/group/delete', {
+      group_id: String(groupId),
+    }, {
+      headers: { access_token: token, 'Content-Type': 'application/json' },
+    });
+
+  let res = await doRequest(getToken());
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+
+  if (res.data?.error !== 0) {
+    console.warn(`[Zalo] Lỗi xóa nhóm ${groupId}:`, res.data?.error, res.data?.message);
+    throw new Error(`Zalo error ${res.data?.error}: ${res.data?.message}`);
+  }
+
+  return true;
+}
+
+// Lấy danh sách thành viên đang chờ duyệt vào nhóm (GMF v3.0)
+async function getPendingGroupMembers(groupId, offset = 0, count = 50) {
+  const doRequest = (token) =>
+    axios.get('https://openapi.zalo.me/v3.0/oa/group/listpendinginvite', {
+      params: { group_id: String(groupId), offset, count },
+      headers: { access_token: token },
+    });
+  let res = await doRequest(getToken());
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+  if (res.data?.error !== 0) {
+    console.warn(`[Zalo] listpendinginvite group=${groupId} lỗi:`, res.data?.error, res.data?.message);
+  }
+  const d = res.data?.data || {};
+  return { members: d.members || [], total: d.total || 0, raw: res.data };
+}
+
+// Duyệt thành viên đang chờ vào nhóm (GMF v3.0)
+async function acceptGroupJoinRequest(groupId, memberUserIds) {
+  const doRequest = (token) =>
+    axios.post('https://openapi.zalo.me/v3.0/oa/group/acceptpendinginvite', {
+      group_id: String(groupId),
+      member_user_ids: memberUserIds.map(String),
+    }, {
+      headers: { access_token: token, 'Content-Type': 'application/json' },
+    });
+
+  let res = await doRequest(getToken());
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+  if (res.data?.error !== 0) {
+    throw new Error(`Zalo error ${res.data?.error}: ${res.data?.message}`);
+  }
+  return true;
+}
+
+// Từ chối thành viên đang chờ vào nhóm (GMF v3.0)
+async function rejectGroupJoinRequest(groupId, memberUserIds) {
+  const doRequest = (token) =>
+    axios.post('https://openapi.zalo.me/v3.0/oa/group/rejectpendinginvite', {
+      group_id: String(groupId),
+      member_user_ids: memberUserIds.map(String),
+    }, {
+      headers: { access_token: token, 'Content-Type': 'application/json' },
+    });
+
+  let res = await doRequest(getToken());
+  if (res.data?.error === -216) {
+    const newToken = await refreshAccessToken();
+    res = await doRequest(newToken);
+  }
+  if (res.data?.error !== 0) {
+    throw new Error(`Zalo error ${res.data?.error}: ${res.data?.message}`);
+  }
+  return true;
+}
+
+// Upload ảnh lên Zalo OA để lấy attachment_id. Ảnh do hệ thống lưu trên VPS (/uploads/...) thì
+// đọc thẳng từ đĩa; URL ngoài thì tải về qua HTTP.
+async function uploadImageFromUrlToZalo(url) {
+  try {
+    const localPath = resolveLocalPath(url);
+    if (localPath) return await uploadImageToZalo(localPath);
+    const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
+    const buffer = Buffer.from(res.data);
+    const filename = path.basename(url.split('?')[0]) || 'image.jpg';
+    return await uploadImageBufferToZalo(buffer, filename);
+  } catch (err) {
+    console.error(`[Zalo] Tải và upload ảnh thất bại từ URL ${url}:`, err.message);
+    throw err;
+  }
+}
+
+// Upload file tài liệu lên Zalo OA để lấy file token — file trên VPS đọc thẳng từ đĩa,
+// URL ngoài thì tải về file tạm trước.
+async function uploadFileFromUrlToZalo(url, originalFilename) {
+  const os = require('os');
+  const crypto = require('crypto');
+  try {
+    const localPath = resolveLocalPath(url);
+    if (localPath) return await uploadFileToZalo(localPath, originalFilename);
+    const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
+    const buffer = Buffer.from(res.data);
+    const tempFilename = `temp_${crypto.randomBytes(4).toString('hex')}_${originalFilename.replace(/[^\w.-]/g, '_')}`;
+    const tempPath = path.join(os.tmpdir(), tempFilename);
+    fs.writeFileSync(tempPath, buffer);
+    try {
+      const token = await uploadFileToZalo(tempPath, originalFilename);
+      return token;
+    } finally {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (e) {
+        console.error('[Zalo] Lỗi xóa file tạm:', e.message);
+      }
+    }
+  } catch (err) {
+    console.error(`[Zalo] Tải và upload file thất bại từ URL ${url}:`, err.message);
+    throw err;
+  }
+}
+
+module.exports = {
+  zaloPost,
+  zaloGet,
+  sendZaloText,
+  sendZaloLinkButton,
+  sendZaloToGroup,
+  sendZaloImages,
+  sendZaloImagesToGroup,
+  sendZaloImageWithLink,
+  sendZaloImageWithLinkToGroup,
+  sendZaloFile,
+  sendZaloFileToGroup,
+  getZaloUserProfile,
+  uploadImageBufferToZalo,
+  uploadImageToZalo,
+  uploadFileToZalo,
+  getGroupsOfOA,
+  getGroupMembersV3,
+  createZaloGroup,
+  deleteZaloGroup,
+  getPendingGroupMembers,
+  acceptGroupJoinRequest,
+  rejectGroupJoinRequest,
+  uploadImageFromUrlToZalo,
+  uploadFileFromUrlToZalo,
+};

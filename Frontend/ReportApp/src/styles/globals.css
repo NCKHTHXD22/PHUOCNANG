@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 165 55% 97%;
+    --foreground: 165 25% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 165 25% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 165 25% 15%;
+    --primary: 160 84% 33%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 165 45% 95%;
+    --secondary-foreground: 165 25% 15%;
+    --muted: 165 45% 95%;
+    --muted-foreground: 165 10% 45%;
+    --accent: 165 45% 95%;
+    --accent-foreground: 165 25% 15%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 165 40% 90%;
+    --input: 165 40% 90%;
+    --ring: 160 84% 33%;
+    --radius: 1rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground font-sans antialiased; }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(13, 148, 136, 0.25); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(13, 148, 136, 0.4); }
+
+.gradient-text {
+  background: linear-gradient(135deg, #059669, #0891b2);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Lưới chấm mờ dần, dùng cho nền trang */
+.dot-grid {
+  background-image: radial-gradient(rgba(13, 148, 136, 0.14) 1.4px, transparent 1.4px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(130% 100% at 50% 0%, #000 40%, transparent 82%);
+  mask-image: radial-gradient(130% 100% at 50% 0%, #000 40%, transparent 82%);
+}
+
+/* Hiệu ứng máy bay giấy ở nút "Gửi phản ánh" — bay nhẹ liên tục (hợp mobile, không cần hover) */
+@keyframes plane-fly {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  50% { transform: translate(2px, -2px) rotate(-6deg); }
+}
+.animate-plane { animation: plane-fly 1.8s ease-in-out infinite; }

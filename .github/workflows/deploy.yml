@@ -1,0 +1,33 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - name: SSH vào VPS và deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_PRIVATE_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+            cd ${{ secrets.VPS_APP_DIR }}
+            git fetch origin main
+            # reset --hard KHÔNG xoá file bị .gitignore (Backend/.env, Backend/data, Backend/uploads),
+            # nhưng vẫn nên đặt DATA_DIR/UPLOAD_DIR ngoài thư mục code — xem Document/DEPLOY.md
+            git reset --hard origin/main
+            cd Backend && npm install --omit=dev && cd ..
+            cd Frontend/Web && npm install && npm run build && cd ../..
+            cd Frontend/ReportApp && npm install && npm run build && cd ../..
+            # Chỉ chạy 1 tiến trình: refresh token Zalo dùng 1 lần, 2 tiến trình sẽ làm hỏng token
+            pm2 delete phuocnang-backend 2>/dev/null || true
+            pm2 start server.js --name phuocnang-backend --cwd ${{ secrets.VPS_APP_DIR }}/Backend -i 1
+            pm2 save
+            echo "✅ Deploy xong: $(date)"
